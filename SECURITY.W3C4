@@ -1,0 +1,754 @@
+# Security Policy
+https://s89219.github.io/thtcc1891993/#2915
+## Supported Versions
+
+Use this section to tell people about which versions of your project are
+currently being supported with security updates.
+
+| Version | Supported          |
+| ------- | ------------------ |
+| 5.1.x   | :white_check_mark: |
+| 5.0.x   | :x:                |
+| 4.0.x   | :white_check_mark: |
+| < 4.0   | :x:                |
+
+## Reporting a Vulnerability
+
+Use this section to tell people how to report a vulnerability.
+
+Tell them where to go, how often they can expect to get an update on a
+reported vulnerability, what to expect if the vulnerability is accepted or
+declined, etc.
+↑ Jump to Table of Contents
+→ Pop Out Sidebar
+W3C
+Intersection Observer
+Editor’s Draft, 1 April 2022
+
+More details about this document
+This version:
+https://w3c.github.io/IntersectionObserver/
+Latest published version:
+https://www.w3.org/TR/intersection-observer/
+Previous Versions:
+https://www.w3.org/TR/2021/WD-intersection-observer-20210624/
+Test Suite:
+http://w3c-test.org/intersection-observer/
+Feedback:
+GitHub
+Editors:
+Stefan Zager (Google)5061
+Emilio Cobos Álvarez (Mozilla)starking9vn
+Former Editor:
+Michael Blain (Google)
+Copyright © 2022 W3C® (MIT, ERCIM, Keio, Beihang). W3C liability, trademark and permissive document license rules apply.
+
+Abstrachttps://s89219.github.io/thtcc1891993/#2915
+This specification describes an API that can be used to understand the visibility and position of DOM elements ("targets") relative to a containing element or to the top-level viewport ("root"). The position is delivered asynchronously and is useful for understanding the visibility of elements and implementing pre-loading and deferred loading of DOM content.
+
+Status of this document
+This section describes the status of this document at the time of its publication. A list of current W3C publications and the latest revision of this technical report can be found in the W3C technical reports index at https://www.w3.org/TR/.
+
+This document was published by the Web Applications Working Group as an Editors Draft. This document is intended to become a W3C Recommendation.
+
+This document was published by the Web Applications Working Group as a Working Draft. Feedback and comments on this specification are welcome. Please use GitHub issues Historical discussions can be found in the public-webapps@w3.org archives.
+
+Publication as an Editors Draft does not imply endorsement by W3C and its Members. This is a draft document and may be updated, replaced or obsoleted by other documents at any time. It is inappropriate to cite this document as other than work in progress.
+
+This document was produced by a group operating under the W3C Patent Policy. W3C maintains a public list of any patent disclosures made in connection with the deliverables of the group; that page also includes instructions for disclosing a patent. An individual who has actual knowledge of a patent which the individual believes contains Essential Claim(s) must disclose the information in accordance with section 6 of the W3C Patent Policy.
+
+This document is governed by the 2 November 2021 W3C Process Document.
+
+Table of Contents
+1Introduction
+2Intersection Observer
+2.1The IntersectionObserverCallback
+2.2The IntersectionObserver interface
+2.3The IntersectionObserverEntry interface
+2.4The IntersectionObserverInit dictionary
+3Processing Model
+3.1Internal Slot Definitions
+3.1.1Document
+3.1.2Element
+3.1.3IntersectionObserver
+3.2Algorithms
+3.2.1Initialize a new IntersectionObserver
+3.2.2Observe a target Element
+3.2.3Unobserve a target Element
+3.2.4Queue an Intersection Observer Task
+3.2.5Notify Intersection Observers
+3.2.6Queue an IntersectionObserverEntry
+3.2.7Compute the Intersection of a Target Element and the Root
+3.2.8Run the Update Intersection Observations Steps
+3.3IntersectionObserver Lifetime
+3.4External Spec Integrations
+3.4.1HTML Processing Model: Event Loop
+3.4.2Pending initial IntersectionObserver targets
+4Accessibility Considerations
+5Privacy and Security
+6Internationalization
+7Acknowledgements
+Conformance
+Document conventions
+Conformant Algorithms
+Index
+Terms defined by this specification
+Terms defined by reference
+References
+Normative References
+IDL Index
+1. Introduction
+The web’s traditional position calculation mechanisms rely on explicit queries of DOM state that are known to cause (expensive) style recalculation and layout and, frequently, are a source of significant performance overhead due to continuous polling for this information.
+
+A body of common practice has evolved that relies on these behaviors, however, including (but not limited to):
+
+Building custom pre- and deferred-loading of DOM and data.
+
+Implementing data-bound high-performance scrolling lists which load and render subsets of data sets. These lists are a central mobile interaction idiom.
+
+Calculating element visibility. In particular, ad networks now require reporting of ad "visibility" for monetizing impressions. This has led to many sites abusing scroll handlers (causing jank on scroll), synchronous layout invoking readbacks (causing unnecessary critical work in rAF loops), and resorting to exotic plugin-based solutions for computing "true" element visibility (with all the associated overhead of the plugin architecture).
+
+These use-cases have several common properties:
+
+They can be represented as passive "queries" about the state of individual elements with respect to some other element (or the global viewport).
+
+They do not impose hard latency requirements; that is to say, the information can be delivered asynchronously (e.g. from another thread) without penalty.
+
+They are poorly supported by nearly all combinations of existing web platform features, requiring extraordinary developer effort despite their widespread use.
+
+A notable non-goal is pixel-accurate information about what was actually displayed (which can be quite difficult to obtain efficiently in certain browser architectures in the face of filters, webgl, and other features). In all of these scenarios the information is useful even when delivered at a slight delay and without perfect compositing-result data.
+
+The Intersection Observer API addresses the above issues by giving developers a new method to asynchronously query the position of an element with respect to other elements or the global viewport. The asynchronous delivery eliminates the need for costly DOM and style queries, continuous polling, and use of custom plugins. By removing the need for these methods it allows applications to significantly reduce their CPU, GPU and energy costs.
+
+var observer = new IntersectionObserver(changes => {
+  for (const change of changes) {
+    console.log(change.time);               // Timestamp when the change occurred
+    console.log(change.rootBounds);         // Unclipped area of root
+    console.log(change.boundingClientRect); // target.boundingClientRect()
+    console.log(change.intersectionRect);   // boundingClientRect, clipped by its containing block ancestors, and intersected with rootBounds
+    console.log(change.intersectionRatio);  // Ratio of intersectionRect area to boundingClientRect area
+    console.log(change.target);             // the Element target
+  }
+}, {});
+
+// Watch for intersection events on a specific target Element.
+observer.observe(target);
+
+// Stop watching for intersection events on a specific target Element.
+observer.unobserve(target);
+
+// Stop observing threshold events on all target elements.
+observer.disconnect();
+2. Intersection Observer
+The Intersection Observer API enables developers to understand the visibility and position of target DOM elements relative to an intersection root.
+
+2.1. The IntersectionObserverCallback
+callback IntersectionObserverCallback = undefined (sequence<IntersectionObserverEntry> entries, IntersectionObserver observer);
+This callback will be invoked when there are changes to target’s intersection with the intersection root, as per the processing model.
+
+2.2. The IntersectionObserver interface
+✔MDN
+The IntersectionObserver interface can be used to observe changes in the intersection of an intersection root and one or more target Elements.
+
+The intersection root for an IntersectionObserver is the value of its root attribute if the attribute is non-null; otherwise, it is the top-level browsing context’s document node, referred to as the implicit root.
+
+An IntersectionObserver with a non-null root is referred to as an explicit root observer, and it can observe any target Element that is a descendant of the root in the containing block chain. An IntersectionObserver with a null root is referred to as an implicit root observer. Valid targets for an implicit root observer include any Element in the top-level browsing context, as well as any Element in any nested browsing context which is in the list of the descendant browsing contexts of the top-level browsing context.
+
+When dealing with implicit root observers, the API makes a distinction between a target whose relevant settings object’s origin is same origin-domain with the top-level origin, referred to as a same-origin-domain target; as opposed to a cross-origin-domain target. Any target of an explicit root observer is also a same-origin-domain target, since the target must be in the same document as the intersection root.
+
+Note: In MutationObserver, the MutationObserverInit options are passed to observe() while in IntersectionObserver they are passed to the constructor. This is because for MutationObserver, each Node being observed could have a different set of attributes to filter for. For IntersectionObserver, developers may choose to use a single observer to track multiple targets using the same set of options; or they may use a different observer for each tracked target. rootMargin or threshold values for each target seems to introduce more complexity without solving additional use-cases. Per-observe() options could be provided in the future if the need arises.
+
+✔MDN
+[Exposed=Window]
+interface IntersectionObserver {
+  constructor(IntersectionObserverCallback callback, optional IntersectionObserverInit options = {});
+  readonly attribute (Element or Document)? root;
+  readonly attribute DOMString rootMargin;
+  readonly attribute FrozenArray<double> thresholds;
+  undefined observe(Element target);
+  undefined unobserve(Element target);
+  undefined disconnect();
+  sequence<IntersectionObserverEntry> takeRecords();
+};
+new IntersectionObserver(callback, options)
+Return the result of running the initialize a new IntersectionObserver algorithm, providing callback and options.
+
+✔MDN
+observe(target)
+
+Run the observe a target Element algorithm, providing this and target.
+
+✔MDN
+unobserve(target)
+
+Run the unobserve a target Element algorithm, providing this and target.
+
+Note: MutationObserver does not implement unobserve(). For IntersectionObserver, unobserve() addresses the lazy-loading use case. After target becomes visible, it does not need to be tracked. It would be more work to either disconnect() all targets and observe() the remaining ones, or create a separate IntersectionObserver for each target.
+
+✔MDN
+disconnect()
+
+For each target in this’s internal [[ObservationTargets]] slot:
+
+Remove the IntersectionObserverRegistration record whose observer property is equal to this from target’s internal [[RegisteredIntersectionObservers]] slot.
+
+Remove target from this’s internal [[ObservationTargets]] slot.
+
+✔MDN
+takeRecords()
+
+Let queue be a copy of this’s internal [[QueuedEntries]] slot.
+
+Clear this’s internal [[QueuedEntries]] slot.
+
+Return queue.
+
+✔MDN
+root, of type (Element or Document), readonly, nullable
+
+The root provided to the IntersectionObserver constructor, or null if none was provided.
+
+✔MDN
+rootMargin, of type DOMString, readonly
+
+Offsets applied to the root intersection rectangle, effectively growing or shrinking the box that is used to calculate intersections. These offsets are only applied when handling same-origin-domain targets; for cross-origin-domain targets they are ignored.
+
+On getting, return the result of serializing the elements of [[rootMargin]] space-separated, where pixel lengths serialize as the numeric value followed by "px", and percentages serialize as the numeric value followed by "%". Note that this is not guaranteed to be identical to the options.rootMargin passed to the IntersectionObserver constructor. If no rootMargin was passed to the IntersectionObserver constructor, the value of this attribute is "0px 0px 0px 0px".
+
+✔MDN
+thresholds, of type FrozenArray<double>, readonly
+
+A list of thresholds, sorted in increasing numeric order, where each threshold is a ratio of intersection area to bounding box area of an observed target. Notifications for a target are generated when any of the thresholds are crossed for that target. If no options.threshold was provided to the IntersectionObserver constructor, the value of this attribute will be [0].
+
+An Element is defined as having a content clip if its computed style has overflow properties that cause its content to be clipped to the element’s padding edge.
+
+The root intersection rectangle for an IntersectionObserver is the rectangle we’ll use to check against the targets.
+
+If the IntersectionObserver is an implicit root observer,
+it’s treated as if the root were the top-level browsing context’s document, according to the following rule for document.
+If the intersection root is a document,
+it’s the size of the document's viewport (note that this processing step can only be reached if the document is fully active).
+Otherwise, if the intersection root has a content clip,
+it’s the element’s content area.
+Otherwise,
+it’s the result of running the getBoundingClientRect() algorithm on the intersection root.
+When calculating the root intersection rectangle for a same-origin-domain target, the rectangle is then expanded according to the offsets in the IntersectionObserver’s [[rootMargin]] slot in a manner similar to CSS’s margin property, with the four values indicating the amount the top, right, bottom, and left edges, respectively, are offset by, with positive lengths indicating an outward offset. Percentages are resolved relative to the width of the undilated rectangle.
+
+Note: rootMargin only applies to the intersection root itself. If a target Element is clipped by an ancestor other than the intersection root, that clipping is unaffected by rootMargin.
+
+Note: Root intersection rectangle is not affected by pinch zoom and will report the unadjusted viewport, consistent with the intent of pinch zooming (to act like a magnifying glass and NOT change layout.)
+
+To parse a root margin from an input string marginString, returning either a list of 4 pixel lengths or percentages, or failure:
+
+Parse a list of component values marginString, storing the result as tokens.
+
+Remove all whitespace tokens from tokens.
+
+If the length of tokens is greater than 4, return failure.
+
+If there are zero elements in tokens, set tokens to ["0px"].
+
+Replace each token in tokens:
+
+If token is an absolute length dimension token, replace it with a an equivalent pixel length.
+
+If token is a <percentage> token, replace it with an equivalent percentage.
+
+Otherwise, return failure.
+
+If there is one element in tokens, append three duplicates of that element to tokens. Otherwise, if there are two elements are tokens, append a duplicate of each element to tokens. Otherwise, if there are three elements in tokens, append a duplicate of the second element to tokens.
+
+Return tokens.
+
+2.3. The IntersectionObserverEntry interface
+✔MDN
+[Exposed=Window]
+interface IntersectionObserverEntry {
+  constructor(IntersectionObserverEntryInit intersectionObserverEntryInit);
+  readonly attribute DOMHighResTimeStamp time;
+  readonly attribute DOMRectReadOnly? rootBounds;
+  readonly attribute DOMRectReadOnly boundingClientRect;
+  readonly attribute DOMRectReadOnly intersectionRect;
+  readonly attribute boolean isIntersecting;
+  readonly attribute double intersectionRatio;
+  readonly attribute Element target;
+};
+
+dictionary IntersectionObserverEntryInit {
+  required DOMHighResTimeStamp time;
+  required DOMRectInit? rootBounds;
+  required DOMRectInit boundingClientRect;
+  required DOMRectInit intersectionRect;
+  required boolean isIntersecting;
+  required double intersectionRatio;
+  required Element target;
+};
+✔MDN
+boundingClientRect, of type DOMRectReadOnly, readonly
+
+A DOMRectReadOnly obtained by running the getBoundingClientRect() algorithm on the target.
+
+✔MDN
+intersectionRect, of type DOMRectReadOnly, readonly
+
+boundingClientRect, intersected by each of target's ancestors' clip rects (up to but not including root), intersected with the root intersection rectangle. This value represents the portion of target actually visible within the root intersection rectangle.
+
+✔MDN
+isIntersecting, of type boolean, readonly
+
+True if the target intersects with the root; false otherwise. This flag makes it possible to distinguish between an IntersectionObserverEntry signalling the transition from intersecting to not-intersecting; and an IntersectionObserverEntry signalling a transition from not-intersecting to intersecting with a zero-area intersection rect (as will happen with edge-adjacent intersections, or when the boundingClientRect has zero area).
+
+✔MDN
+intersectionRatio, of type double, readonly
+
+If the boundingClientRect has non-zero area, this will be the ratio of intersectionRect area to boundingClientRect area. Otherwise, this will be 1 if the isIntersecting is true, and 0 if not.
+
+✔MDN
+rootBounds, of type DOMRectReadOnly, readonly, nullable
+
+For a same-origin-domain target, this will be the root intersection rectangle. Otherwise, this will be null. Note that if the target is in a different browsing context than the intersection root, this will be in a different coordinate system than boundingClientRect and intersectionRect.
+
+✔MDN
+target, of type Element, readonly
+
+The Element whose intersection with the intersection root changed.
+
+✔MDN
+time, of type DOMHighResTimeStamp, readonly
+
+The attribute must return a DOMHighResTimeStamp that corresponds to the time the intersection was recorded, relative to the time origin of the global object associated with the IntersectionObserver instance that generated the notification.
+
+2.4. The IntersectionObserverInit dictionary
+dictionary IntersectionObserverInit {
+  (Element or Document)?  root = null;
+  DOMString rootMargin = "0px";
+  (double or sequence<double>) threshold = 0;
+};
+root, of type (Element or Document), nullable, defaulting to null
+The root to use for intersection. If not provided, use the implicit root.
+
+rootMargin, of type DOMString, defaulting to "0px"
+Similar to the CSS margin property, this is a string of 1-4 components, each either an absolute length or a percentage.
+
+"5px"                // all margins set to 5px
+"5px 10px"           // top & bottom = 5px, right & left = 10px
+"-10px 5px 8px"      // top = -10px, right & left = 5px, bottom = 8px
+"-10px -5px 5px 8px" // top = -10px, right = -5px, bottom = 5px, left = 8px
+threshold, of type (double or sequence<double>), defaulting to 0
+List of threshold(s) at which to trigger callback. callback will be invoked when intersectionRect’s area changes from greater than or equal to any threshold to less than that threshold, and vice versa.
+
+Threshold values must be in the range of [0, 1.0] and represent a percentage of the area of the rectangle produced by running the getBoundingClientRect() algorithm on the target.
+
+Note: 0.0 is effectively "any non-zero number of pixels".
+
+3. Processing Model
+This section outlines the steps the user agent must take when implementing the Intersection Observer API.
+
+3.1. Internal Slot Definitions
+3.1.1. Document
+Each document has an IntersectionObserverTaskQueued flag which is initialized to false.
+
+3.1.2. Element
+Element objects have an internal [[RegisteredIntersectionObservers]] slot, which is initialized to an empty list. This list holds IntersectionObserverRegistration records, which have an observer property holding an IntersectionObserver, a previousThresholdIndex property holding a number between -1 and the length of the observer’s thresholds property (inclusive), and a previousIsIntersecting property holding a boolean.
+
+3.1.3. IntersectionObserver
+IntersectionObserver objects have internal [[QueuedEntries]] and [[ObservationTargets]] slots, which are initialized to empty lists and an internal [[callback]] slot which is initialized by IntersectionObserver(callback, options). They also have an internal [[rootMargin]] slot which is a list of four pixel lengths or percentages.
+
+3.2. Algorithms
+3.2.1. Initialize a new IntersectionObserver
+To initialize a new IntersectionObserver, given an IntersectionObserverCallback callback and an IntersectionObserverInit dictionary options, run these steps:
+
+Let this be a new IntersectionObserver object
+
+Set this’s internal [[callback]] slot to callback.
+
+Attempt to parse a root margin from options.rootMargin. If a list is returned, set this’s internal [[rootMargin]] slot to that. Otherwise, throw a SyntaxError exception.
+
+Let thresholds be a list equal to options.threshold.
+
+If any value in thresholds is less than 0.0 or greater than 1.0, throw a RangeError exception.
+
+Sort thresholds in ascending order.
+
+If thresholds is empty, append 0 to thresholds.
+
+The thresholds attribute getter will return this sorted thresholds list.
+
+Return this.
+
+3.2.2. Observe a target Element
+To observe a target Element, given an IntersectionObserver observer and an Element target, follow these steps:
+
+If target is in observer’s internal [[ObservationTargets]] slot, return.
+
+Let intersectionObserverRegistration be an IntersectionObserverRegistration record with an observer property set to observer, a previousThresholdIndex property set to -1, and a previousIsIntersecting property set to false.
+
+Append intersectionObserverRegistration to target’s internal [[RegisteredIntersectionObservers]] slot.
+
+Add target to observer’s internal [[ObservationTargets]] slot.
+
+3.2.3. Unobserve a target Element
+To unobserve a target Element, given an IntersectionObserver observer and an Element target, follow these steps:
+
+Remove the IntersectionObserverRegistration record whose observer property is equal to this from target’s internal [[RegisteredIntersectionObservers]] slot, if present.
+
+Remove target from this’s internal [[ObservationTargets]] slot, if present
+
+3.2.4. Queue an Intersection Observer Task
+The IntersectionObserver task source is a task source used for scheduling tasks to § 3.2.5 Notify Intersection Observers.
+
+To queue an intersection observer task for a document document, run these steps:
+
+If document’s IntersectionObserverTaskQueued flag is set to true, return.
+
+Set document’s IntersectionObserverTaskQueued flag to true.
+
+Queue a task on the IntersectionObserver task source associated with the document's event loop to notify intersection observers.
+
+3.2.5. Notify Intersection Observers
+To notify intersection observers for a document document, run these steps:
+
+Set document’s IntersectionObserverTaskQueued flag to false.
+
+Let notify list be a list of all IntersectionObservers whose root is in the DOM tree of document.
+
+For each IntersectionObserver object observer in notify list, run these steps:
+
+If observer’s internal [[QueuedEntries]] slot is empty, continue.
+
+Let queue be a copy of observer’s internal [[QueuedEntries]] slot.
+
+Clear observer’s internal [[QueuedEntries]] slot.
+
+Let callback be the value of observer’s internal [[callback]] slot.
+
+Invoke callback with queue as the first argument, observer as the second argument, and observer as the callback this value. If this throws an exception, report the exception.
+
+3.2.6. Queue an IntersectionObserverEntry
+To queue an IntersectionObserverEntry for an IntersectionObserver observer, given a document document; DOMHighResTimeStamp time; DOMRects rootBounds, boundingClientRect, intersectionRect, and isIntersecting flag; and an Element target; run these steps:
+
+Construct an IntersectionObserverEntry, passing in time, rootBounds, boundingClientRect, intersectionRect, isIntersecting, and target.
+
+Append it to observer’s internal [[QueuedEntries]] slot.
+
+Queue an intersection observer task for document.
+
+3.2.7. Compute the Intersection of a Target Element and the Root
+To compute the intersection between a target target and an intersection root root, run these steps:
+
+Let intersectionRect be the result of running the getBoundingClientRect() algorithm on target.
+
+Let container be the containing block of target.
+
+While container is not root:
+
+If container is the document of a nested browsing context, update intersectionRect by clipping to the viewport of the document, and update container to be the browsing context container of container.
+
+Map intersectionRect to the coordinate space of container.
+
+If container has a content clip or a css clip-path property, update intersectionRect by applying container’s clip.
+
+If container is the root element of a browsing context, update container to be the browsing context’s document; otherwise, update container to be the containing block of container.
+
+Map intersectionRect to the coordinate space of root.
+
+Update intersectionRect by intersecting it with the root intersection rectangle.
+
+Map intersectionRect to the coordinate space of the viewport of the document containing target.
+
+Return intersectionRect.
+
+3.2.8. Run the Update Intersection Observations Steps
+To run the update intersection observations steps for a document document given a timestamp time, run these steps:
+
+Let observer list be a list of all IntersectionObservers whose root is in the DOM tree of document. For the top-level browsing context, this includes implicit root observers.
+
+For each observer in observer list:
+
+Let rootBounds be observer’s root intersection rectangle.
+
+For each target in observer’s internal [[ObservationTargets]] slot, processed in the same order that observe() was called on each target:
+
+Let:
+
+thresholdIndex be 0.
+
+isIntersecting be false.
+
+targetRect be a DOMRectReadOnly with x, y, width, and height set to 0.
+
+intersectionRect be a DOMRectReadOnly with x, y, width, and height set to 0.
+
+If the intersection root is not the implicit root, and target is not in the same document as the intersection root, skip to step 11.
+
+If the intersection root is an Element, and target is not a descendant of the intersection root in the containing block chain, skip to step 11.
+
+Set targetRect to the DOMRectReadOnly obtained by running the getBoundingClientRect() algorithm on target.
+
+Let intersectionRect be the result of running the compute the intersection algorithm on target and observer’s intersection root.
+
+Let targetArea be targetRect’s area.
+
+Let intersectionArea be intersectionRect’s area.
+
+Let isIntersecting be true if targetRect and rootBounds intersect or are edge-adjacent, even if the intersection has zero area (because rootBounds or targetRect have zero area).
+
+If targetArea is non-zero, let intersectionRatio be intersectionArea divided by targetArea.
+Otherwise, let intersectionRatio be 1 if isIntersecting is true, or 0 if isIntersecting is false.
+
+Set thresholdIndex to the index of the first entry in observer.thresholds whose value is greater than intersectionRatio, or the length of observer.thresholds if intersectionRatio is greater than or equal to the last entry in observer.thresholds.
+
+Let intersectionObserverRegistration be the IntersectionObserverRegistration record in target’s internal [[RegisteredIntersectionObservers]] slot whose observer property is equal to observer.
+
+Let previousThresholdIndex be the intersectionObserverRegistration’s previousThresholdIndex property.
+
+Let previousIsIntersecting be the intersectionObserverRegistration’s previousIsIntersecting property.
+
+If thresholdIndex does not equal previousThresholdIndex or if isIntersecting does not equal previousIsIntersecting, queue an IntersectionObserverEntry, passing in observer, time, rootBounds, targetRect, intersectionRect, isIntersecting, and target.
+
+Assign thresholdIndex to intersectionObserverRegistration’s previousThresholdIndex property.
+
+Assign isIntersecting to intersectionObserverRegistration’s previousIsIntersecting property.
+
+3.3. IntersectionObserver Lifetime
+An IntersectionObserver will remain alive until both of these conditions hold:
+
+There are no scripting references to the observer.
+The observer is not observing any targets.
+An IntersectionObserver will continue observing a target until either the observer’s unobserve() method is called with the target as argument; or the observer’s disconnect() is called.
+
+3.4. External Spec Integrations
+3.4.1. HTML Processing Model: Event Loop
+An Intersection Observer processing step should take place during the "Update the rendering" steps, after step 12, run the animation frame callbacks, in the in the HTML Processing Model.
+
+This step is:
+
+For each fully active document in docs, Run the update intersection observations steps for that document, passing in now as the timestamp.
+3.4.2. Pending initial IntersectionObserver targets
+A document is said to have pending initial IntersectionObserver targets if there is at least one IntersectionObserver meeting these criteria:
+The observer’s root is in the document (for the top-level browsing context, this includes implicit root observers).
+The observer has at least one target in its [[ObservationTargets]] slot for which no IntersectionObserverEntry has yet been queued.
+In the HTML Processing Model, under the "Update the rendering" step, the "Unnecessary rendering" step should be modified to add an additional requirement for skipping the rendering update:
+
+The document does not have pending initial IntersectionObserver targets.
+4. Accessibility Considerations
+This section is non-normative.
+
+There are no known accessibility considerations for the core IntersectionObserver specification (this document). There are, however, related specifications and proposals that leverage and refer to this spec, which might have their own accessibility considerations. In particular, specifications for HTML § 2.5.7 Lazy loading attributes and CSS Containment 2 § 4 Suppressing An Element’s Contents Entirely: the content-visibility property may have implications for HTML § 6.9 Find-in-page, HTML § 6.6.3 The tabindex attribute, and spatial navigation.
+
+5. Privacy and Security
+This section is non-normative.
+
+The main privacy concerns associated with this API relate to the information it may provide to code running in the context of a cross-origin iframe (i.e., the cross-origin-domain target case). In particular:
+
+There is no universal consensus on the privacy implications of revealing whether an iframe is within the global viewport.
+
+There is a risk that the API may be used to probe for information about the geometry of the global viewport itself, which may be used to deduce the user’s hardware configuration. The motivation for disabling the effects of rootMargin and suppressing rootBounds for cross-origin-domain targets is to prevent such probing.
+
+It should be noted that prior to IntersectionObserver, web developers used other API’s in very ingenious (and grotesque) ways to tease out the information available from IntersectionObserver. As a purely practical matter, this API does not reveal any information that was not already available by other means.
+
+Another consideration is that IntersectionObserver uses DOMHighResTimeStamp, which has privacy and security considerations of its own. It is however unlikely that IntersectionObserver is vulnerable to timing-related exploits. Timestamps are generated at most once per rendering update (see § 3.4.1 HTML Processing Model: Event Loop), which is far too infrequent for the familiar kind of timing attack.
+
+6. Internationalization
+This section is non-normative.
+
+There are no known issues concerning internationalization.
+
+7. Acknowledgements
+Special thanks to all the contributors for their technical input and suggestions that led to improvements to this specification.
+
+Conformance
+Document conventions
+Conformance requirements are expressed with a combination of descriptive assertions and RFC 2119 terminology. The key words “MUST”, “MUST NOT”, “REQUIRED”, “SHALL”, “SHALL NOT”, “SHOULD”, “SHOULD NOT”, “RECOMMENDED”, “MAY”, and “OPTIONAL” in the normative parts of this document are to be interpreted as described in RFC 2119. However, for readability, these words do not appear in all uppercase letters in this specification.
+
+All of the text of this specification is normative except sections explicitly marked as non-normative, examples, and notes. [RFC2119]
+
+Examples in this specification are introduced with the words “for example” or are set apart from the normative text with class="example", like this:
+
+This is an example of an informative example.
+
+Informative notes begin with the word “Note” and are set apart from the normative text with class="note", like this:
+
+Note, this is an informative note.
+
+Conformant Algorithms
+Requirements phrased in the imperative as part of algorithms (such as "strip any leading space characters" or "return false and abort these steps") are to be interpreted with the meaning of the key word ("must", "should", "may", etc) used in introducing the algorithm.
+
+Conformance requirements phrased as algorithms or specific steps can be implemented in any manner, so long as the end result is equivalent. In particular, the algorithms defined in this specification are intended to be easy to understand and are not intended to be performant. Implementers are encouraged to optimize.
+
+Index
+Terms defined by this specification
+boundingClientRect
+attribute for IntersectionObserverEntry, in § 2.3
+dict-member for IntersectionObserverEntryInit, in § 2.3
+[[callback]], in § 3.1.3
+compute the intersection, in § 3.2.7
+constructor(callback), in § 2.2
+constructor(callback, options), in § 2.2
+constructor(intersectionObserverEntryInit), in § 2.3
+content clip, in § 2.2
+cross-origin-domain target, in § 2.2
+disconnect(), in § 2.2
+explicit root observer, in § 2.2
+implicit root, in § 2.2
+implicit root observer, in § 2.2
+initialize a new IntersectionObserver, in § 3.2.1
+Intersection Observer, in § 2
+IntersectionObserver, in § 2.2
+IntersectionObserver(callback), in § 2.2
+IntersectionObserverCallback, in § 2.1
+IntersectionObserver(callback, options = {}), in § 2.2
+IntersectionObserver(callback, options), in § 2.2
+IntersectionObserverEntry, in § 2.3
+IntersectionObserverEntryInit, in § 2.3
+IntersectionObserverEntry(intersectionObserverEntryInit), in § 2.3
+IntersectionObserverInit, in § 2.4
+IntersectionObserverRegistration, in § 3.1.2
+IntersectionObserverTaskQueued, in § 3.1.1
+IntersectionObserver task source, in § 3.2.4
+intersectionRatio
+attribute for IntersectionObserverEntry, in § 2.3
+dict-member for IntersectionObserverEntryInit, in § 2.3
+intersectionRect
+attribute for IntersectionObserverEntry, in § 2.3
+dict-member for IntersectionObserverEntryInit, in § 2.3
+intersection root, in § 2.2
+isIntersecting
+attribute for IntersectionObserverEntry, in § 2.3
+dict-member for IntersectionObserverEntryInit, in § 2.3
+notify intersection observers, in § 3.2.5
+[[ObservationTargets]], in § 3.1.3
+observe a target Element, in § 3.2.2
+observer, in § 3.1.2
+observe(target), in § 2.2
+parse a root margin, in § 2.2
+pending initial IntersectionObserver targets, in § 3.4.2
+previousIsIntersecting, in § 3.1.2
+previousThresholdIndex, in § 3.1.2
+Processing Model, in § 2.4
+queue an IntersectionObserverEntry, in § 3.2.6
+queue an intersection observer task, in § 3.2.4
+[[QueuedEntries]], in § 3.1.3
+[[RegisteredIntersectionObservers]], in § 3.1.2
+root
+attribute for IntersectionObserver, in § 2.2
+dict-member for IntersectionObserverInit, in § 2.4
+rootBounds
+attribute for IntersectionObserverEntry, in § 2.3
+dict-member for IntersectionObserverEntryInit, in § 2.3
+root intersection rectangle, in § 2.2
+[[rootMargin]], in § 3.1.3
+rootMargin
+attribute for IntersectionObserver, in § 2.2
+dict-member for IntersectionObserverInit, in § 2.4
+run the update intersection observations steps, in § 3.2.8
+same-origin-domain target, in § 2.2
+takeRecords(), in § 2.2
+target
+attribute for IntersectionObserverEntry, in § 2.3
+dfn for IntersectionObserver, in § 2
+dict-member for IntersectionObserverEntryInit, in § 2.3
+threshold, in § 2.4
+thresholds, in § 2.2
+time
+attribute for IntersectionObserverEntry, in § 2.3
+dict-member for IntersectionObserverEntryInit, in § 2.3
+unobserve a target Element, in § 3.2.3
+unobserve(target), in § 2.2
+Terms defined by reference
+[css-box-4] defines the following terms:
+margin
+[css-syntax-3] defines the following terms:
+parse a list of component values
+[css-values-3] defines the following terms:
+absolute length
+dimension
+[css-values-4] defines the following terms:
+<percentage>
+[cssom-view-1] defines the following terms:
+getBoundingClientRect()
+[DOM] defines the following terms:
+Document
+Element
+MutationObserver
+MutationObserverInit
+Node
+observe(target)
+[geometry-1] defines the following terms:
+DOMRect
+DOMRectInit
+DOMRectReadOnly
+[HTML] defines the following terms:
+document
+same origin-domain
+task source
+[WEBIDL] defines the following terms:
+DOMString
+Exposed
+FrozenArray
+boolean
+sequence
+References
+Normative References
+[CSS-BOX-4]
+Elika Etemad. CSS Box Model Module Level 4. 21 April 2020. WD. URL: https://www.w3.org/TR/css-box-4/
+[CSS-SYNTAX-3]
+Tab Atkins Jr.; Simon Sapin. CSS Syntax Module Level 3. 24 December 2021. CR. URL: https://www.w3.org/TR/css-syntax-3/
+[CSS-VALUES-3]
+Tab Atkins Jr.; Elika Etemad. CSS Values and Units Module Level 3. 6 June 2019. CR. URL: https://www.w3.org/TR/css-values-3/
+[CSS-VALUES-4]
+Tab Atkins Jr.; Elika Etemad. CSS Values and Units Module Level 4. 16 December 2021. WD. URL: https://www.w3.org/TR/css-values-4/
+[CSSOM-VIEW-1]
+Simon Pieters. CSSOM View Module. 17 March 2016. WD. URL: https://www.w3.org/TR/cssom-view-1/
+[DOM]
+Anne van Kesteren. DOM Standard. Living Standard. URL: https://dom.spec.whatwg.org/
+[GEOMETRY-1]
+Simon Pieters; Chris Harrelson. Geometry Interfaces Module Level 1. 4 December 2018. CR. URL: https://www.w3.org/TR/geometry-1/
+[HTML]
+Anne van Kesteren; et al. HTML Standard. Living Standard. URL: https://html.spec.whatwg.org/multipage/
+[RFC2119]
+S. Bradner. Key words for use in RFCs to Indicate Requirement Levels. March 1997. Best Current Practice. URL: https://datatracker.ietf.org/doc/html/rfc2119
+[WEBIDL]
+Edgar Chen; Timothy Gu. Web IDL Standard. Living Standard. URL: https://webidl.spec.whatwg.org/
+IDL Index
+callback IntersectionObserverCallback = undefined (sequence<IntersectionObserverEntry> entries, IntersectionObserver observer);
+
+[Exposed=Window]
+interface IntersectionObserver {
+  constructor(IntersectionObserverCallback callback, optional IntersectionObserverInit options = {});
+  readonly attribute (Element or Document)? root;
+  readonly attribute DOMString rootMargin;
+  readonly attribute FrozenArray<double> thresholds;
+  undefined observe(Element target);
+  undefined unobserve(Element target);
+  undefined disconnect();
+  sequence<IntersectionObserverEntry> takeRecords();
+};
+
+[Exposed=Window]
+interface IntersectionObserverEntry {
+  constructor(IntersectionObserverEntryInit intersectionObserverEntryInit);
+  readonly attribute DOMHighResTimeStamp time;
+  readonly attribute DOMRectReadOnly? rootBounds;
+  readonly attribute DOMRectReadOnly boundingClientRect;
+  readonly attribute DOMRectReadOnly intersectionRect;
+  readonly attribute boolean isIntersecting;
+  readonly attribute double intersectionRatio;
+  readonly attribute Element target;
+};
+
+dictionary IntersectionObserverEntryInit {
+  required DOMHighResTimeStamp time;
+  required DOMRectInit? rootBounds;
+  required DOMRectInit boundingClientRect;
+  required DOMRectInit intersectionRect;
+  required boolean isIntersecting;
+  required double intersectionRatio;
+  required Element target;
+};
+
+dictionary IntersectionObserverInit {
+  (Element or Document)?  root = null;
+  DOMString rootMargin = "0px";
+  (double or sequence<double>) threshold = 0;
+};
